@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../models/pricing_config.dart';
+import '../models/quote_booking.dart';
+import '../services/storage_service.dart';
+import '../theme/app_theme.dart';
 import 'booking_screen.dart';
 
 class WizardScreen extends StatefulWidget {
   final String category;
   final String brand;
   final Map<String, dynamic> modelData;
-  final Map<String, dynamic> pricingConfig;
+  final PricingConfig pricingConfig;
 
   const WizardScreen({
     Key? key,
@@ -21,256 +25,202 @@ class WizardScreen extends StatefulWidget {
 }
 
 class _WizardScreenState extends State<WizardScreen> {
-  int _currentStep = 1;
+  int _currentStep = 0;
+  
+  // Selections
   String _selectedVariant = '';
+  int _basePrice = 0;
+  String _deviceAge = 'under-3m';
+  String _screenCondition = 'flawless';
+  String _bodyCondition = 'flawless';
+  final Set<String> _selectedFaults = {};
+  
+  // NOTE: Original Accessories start UNSELECTED by default as required!
+  final Set<String> _selectedAccessories = {};
 
-  // Form selections
-  String _selectedAge = 'under-3m';
-  String _selectedScreen = 'flawless';
-  String _selectedBody = 'flawless';
-
-  // Defects checklist
-  final Map<String, bool> _defects = {
-    'frontcam': false,
-    'backcam': false,
-    'cameraglass': false,
-    'buttons': false,
-    'faceid': false,
-    'touchid': false,
-    'sound': false,
-    'mic': false,
-    'network': false,
-    'chargeport': false,
-    'vibrator': false,
-    'proximity': false,
-    'appleservice': false,
-    'androidbattery': false,
-  };
-
-  // Accessories checklist
-  bool _hasBox = true;
-  bool _hasCharger = true;
-  bool _hasBill = true;
+  final List<String> _steps = ['Specs', 'Age', 'Screen', 'Body', 'Faults', 'Accessories'];
 
   @override
   void initState() {
     super.initState();
-    // Default to first variant
-    final pricesMap = widget.modelData['prices'] as Map<String, dynamic>? ?? {};
-    if (pricesMap.isNotEmpty) {
-      _selectedVariant = pricesMap.keys.first;
+    _initVariants();
+  }
+
+  void _initVariants() {
+    if (widget.modelData.containsKey('prices') && widget.modelData['prices'] is Map) {
+      final prices = widget.modelData['prices'] as Map<String, dynamic>;
+      if (prices.isNotEmpty) {
+        _selectedVariant = prices.keys.first;
+        _basePrice = (prices[_selectedVariant] as num).toInt();
+      }
+    } else if (widget.modelData.containsKey('basePrices') && widget.modelData['basePrices'] is Map) {
+      final prices = widget.modelData['basePrices'] as Map<String, dynamic>;
+      if (prices.isNotEmpty) {
+        _selectedVariant = prices.keys.first;
+        _basePrice = (prices[_selectedVariant] as num).toInt();
+      }
+    } else if (widget.modelData.containsKey('models') && widget.modelData['models'] is List) {
+      final list = widget.modelData['models'] as List<dynamic>;
+      if (list.isNotEmpty) {
+        _selectedVariant = list.first['name'] ?? '';
+        _basePrice = (list.first['basePrice'] as num? ?? 0).toInt();
+      }
     }
   }
 
   int _calculateFinalPrice() {
-    final pricesMap = widget.modelData['prices'] as Map<String, dynamic>? ?? {};
-    final basePrice = double.tryParse(pricesMap[_selectedVariant]?.toString() ?? '0') ?? 0.0;
+    if (_basePrice <= 0) return 0;
+    double price = _basePrice.toDouble();
 
-    final config = widget.pricingConfig;
-    final deductionsMap = config['deductions'] as Map<String, dynamic>? ?? {};
-    final ageConfig = deductionsMap['age'] as Map<String, dynamic>? ?? {};
-    final screenConfig = deductionsMap['screen'] as Map<String, dynamic>? ?? {};
-    final bodyConfig = deductionsMap['body'] as Map<String, dynamic>? ?? {};
-    final functionalConfig = deductionsMap['functional'] as Map<String, dynamic>? ?? {};
-    final accessoriesConfig = deductionsMap['accessories'] as Map<String, dynamic>? ?? {};
-    final markupsConfig = config['markups'] as Map<String, dynamic>? ?? {};
+    // 1. Age deduction
+    final ageRate = widget.pricingConfig.ageDeductions[_deviceAge] ?? 0.0;
+    price -= (_basePrice * ageRate);
 
-    double deductions = 0.0;
+    // 2. Screen condition
+    final screenRate = widget.pricingConfig.screenDeductions[_screenCondition] ?? 0.0;
+    price -= (_basePrice * screenRate);
 
-    // Age
-    deductions += double.tryParse(ageConfig[_selectedAge]?.toString() ?? (_selectedAge == '3-6m' ? '0.05' : _selectedAge == '6-11m' ? '0.10' : _selectedAge == 'above-11m' ? '0.15' : '0.0')) ?? 0.0;
+    // 3. Body condition
+    final bodyRate = widget.pricingConfig.bodyDeductions[_bodyCondition] ?? 0.0;
+    price -= (_basePrice * bodyRate);
 
-    // Screen
-    deductions += double.tryParse(screenConfig[_selectedScreen]?.toString() ?? (_selectedScreen == 'scratches' ? '0.10' : _selectedScreen == 'heavy' ? '0.20' : _selectedScreen == 'cracked' ? '0.45' : '0.0')) ?? 0.0;
-
-    // Body
-    deductions += double.tryParse(bodyConfig[_selectedBody]?.toString() ?? (_selectedBody == 'scratches' ? '0.05' : _selectedBody == 'dents' ? '0.20' : _selectedBody == 'broken' ? '0.35' : '0.0')) ?? 0.0;
-
-    // Functional defects
-    _defects.forEach((key, value) {
-      if (value) {
-        double fallback = 0.0;
-        if (key == 'frontcam') fallback = 0.05;
-        else if (key == 'backcam') fallback = 0.10;
-        else if (key == 'cameraglass') fallback = 0.03;
-        else if (key == 'buttons') fallback = 0.05;
-        else if (key == 'faceid') fallback = 0.10;
-        else if (key == 'touchid') fallback = 0.08;
-        else if (key == 'sound') fallback = 0.05;
-        else if (key == 'mic') fallback = 0.05;
-        else if (key == 'network') fallback = 0.08;
-        else if (key == 'chargeport') fallback = 0.05;
-        else if (key == 'vibrator') fallback = 0.02;
-        else if (key == 'proximity') fallback = 0.03;
-        else if (key == 'appleservice') fallback = 0.10;
-        else if (key == 'androidbattery') fallback = 0.10;
-
-        deductions += double.tryParse(functionalConfig[key]?.toString() ?? fallback.toString()) ?? 0.0;
-      }
-    });
-
-    // Accessories
-    if (!_hasBox) {
-      deductions += double.tryParse(accessoriesConfig['box']?.toString() ?? '0.05') ?? 0.0;
-    }
-    if (!_hasCharger) {
-      deductions += double.tryParse(accessoriesConfig['charger']?.toString() ?? '0.05') ?? 0.0;
-    }
-    if (!_hasBill) {
-      deductions += double.tryParse(accessoriesConfig['bill']?.toString() ?? '0.05') ?? 0.0;
+    // 4. Functional faults
+    for (var f in _selectedFaults) {
+      final rate = widget.pricingConfig.faultPenalties[f] ?? 0.05;
+      price -= (_basePrice * rate);
     }
 
-    double factor = 1.0 - deductions;
-    if (factor < 0.20) factor = 0.20;
-
-    double finalQuote = 0.0;
-    if (widget.category == 'laptops') {
-      final guaranteedMarkup = double.tryParse(markupsConfig['laptops']?.toString() ?? '2500.0') ?? 2500.0;
-      final cashifyBase = basePrice - guaranteedMarkup;
-      finalQuote = (cashifyBase * factor) + guaranteedMarkup;
-    } else {
-      final guaranteedMarkup = double.tryParse(markupsConfig['mobiles']?.toString() ?? '1000.0') ?? 1000.0;
-      final cashifyBase = basePrice - guaranteedMarkup;
-      finalQuote = (cashifyBase * factor) + guaranteedMarkup;
+    // 5. Missing Accessories deductions (Deduct if NOT present in _selectedAccessories)
+    if (!_selectedAccessories.contains('box')) {
+      final boxRate = widget.pricingConfig.accessoryDeductions['box'] ?? 0.05;
+      price -= (_basePrice * boxRate);
+    }
+    if (!_selectedAccessories.contains('charger')) {
+      final chargerRate = widget.pricingConfig.accessoryDeductions['charger'] ?? 0.05;
+      price -= (_basePrice * chargerRate);
+    }
+    if (!_selectedAccessories.contains('bill')) {
+      final billRate = widget.pricingConfig.accessoryDeductions['bill'] ?? 0.05;
+      price -= (_basePrice * billRate);
     }
 
-    return finalQuote.round();
+    // Ensure floor price
+    final floor = _basePrice * 0.15;
+    if (price < floor) price = floor;
+
+    return price.round();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isApple = widget.brand.toLowerCase() == 'apple' || widget.brand.toLowerCase() == 'iphone';
+    final finalPrice = _calculateFinalPrice();
+    final modelName = widget.modelData['name'] ?? 'Device';
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.modelData['name'] ?? 'Diagnostic Wizard', style: GoogleFonts.outfit(fontWeight: FontWeight.w800)),
-        backgroundColor: const Color(0xFF2BB584),
+        title: Text(modelName),
       ),
       body: Column(
         children: [
-          _buildStepProgress(),
+          _buildProgressHeader(),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: _buildStepContent(isApple),
+              padding: const EdgeInsets.all(16),
+              child: _buildCurrentStepContent(),
             ),
           ),
-          _buildBottomBar(),
+          _buildBottomValuationBar(finalPrice, modelName),
         ],
       ),
     );
   }
 
-  Widget _buildStepProgress() {
+  Widget _buildProgressHeader() {
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildStepIndicator(1, 'Specs'),
-          _buildStepIndicator(2, 'Condition'),
-          _buildStepIndicator(3, 'Defects'),
-          _buildStepIndicator(4, 'Accs'),
-        ],
+        children: List.generate(_steps.length, (index) {
+          final isCompleted = index < _currentStep;
+          final isCurrent = index == _currentStep;
+          return Expanded(
+            child: Container(
+              height: 4,
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                color: isCompleted || isCurrent ? AppTheme.primaryGreen : const Color(0xFFE2E8F0),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          );
+        }),
       ),
     );
   }
 
-  Widget _buildStepIndicator(int stepNum, String title) {
-    final isCurrent = _currentStep == stepNum;
-    final isPassed = _currentStep > stepNum;
-    return Column(
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: isCurrent
-                ? const Color(0xFF2BB584)
-                : isPassed
-                    ? const Color(0xFFD1FAE5)
-                    : Colors.grey.shade100,
-            border: Border.all(
-              color: isCurrent ? const Color(0xFF2BB584) : Colors.transparent,
-            ),
-          ),
-          child: Center(
-            child: isPassed
-                ? const Icon(Icons.check_rounded, size: 16, color: Color(0xFF047857))
-                : Text(
-                    stepNum.toString(),
-                    style: GoogleFonts.outfit(
-                      fontWeight: FontWeight.bold,
-                      color: isCurrent
-                          ? Colors.white
-                          : Colors.grey.shade600,
-                    ),
-                  ),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          title,
-          style: GoogleFonts.outfit(
-            fontSize: 11,
-            fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w500,
-            color: isCurrent ? const Color(0xFF0F172A) : Colors.grey.shade500,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStepContent(bool isApple) {
+  Widget _buildCurrentStepContent() {
     switch (_currentStep) {
+      case 0:
+        return _buildVariantSelection();
       case 1:
-        return _buildStep1Variants();
+        return _buildAgeSelection();
       case 2:
-        return _buildStep2Conditions();
+        return _buildScreenCondition();
       case 3:
-        return _buildStep3Defects(isApple);
+        return _buildBodyCondition();
       case 4:
-        return _buildStep4Accessories();
+        return _buildFaultsSelection();
+      case 5:
+        return _buildAccessoriesSelection();
       default:
-        return const SizedBox.shrink();
+        return Container();
     }
   }
 
-  Widget _buildStep1Variants() {
-    final pricesMap = widget.modelData['prices'] as Map<String, dynamic>? ?? {};
+  Widget _buildVariantSelection() {
+    List<Map<String, dynamic>> variants = [];
+    if (widget.modelData.containsKey('prices') && widget.modelData['prices'] is Map) {
+      final prices = widget.modelData['prices'] as Map<String, dynamic>;
+      prices.forEach((k, v) => variants.add({'name': k, 'price': v}));
+    } else if (widget.modelData.containsKey('basePrices') && widget.modelData['basePrices'] is Map) {
+      final prices = widget.modelData['basePrices'] as Map<String, dynamic>;
+      prices.forEach((k, v) => variants.add({'name': k, 'price': v}));
+    } else if (widget.modelData.containsKey('models') && widget.modelData['models'] is List) {
+      final list = widget.modelData['models'] as List<dynamic>;
+      for (var item in list) {
+        variants.add({'name': item['name'], 'price': item['basePrice']});
+      }
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Select RAM / Storage Variant',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18, color: const Color(0xFF0F172A)),
-        ),
+        Text('Select Storage / RAM Configuration', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
+        const SizedBox(height: 6),
+        Text('Choose the exact variant of your device', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
         const SizedBox(height: 16),
-        ...pricesMap.keys.map((variantName) {
-          final isSelected = _selectedVariant == variantName;
+        ...variants.map((v) {
+          final isSelected = _selectedVariant == v['name'];
           return GestureDetector(
-            onTap: () => setState(() => _selectedVariant = variantName),
+            onTap: () {
+              setState(() {
+                _selectedVariant = v['name'];
+                _basePrice = (v['price'] as num).toInt();
+              });
+            },
             child: Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(18),
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isSelected ? const Color(0xFF2BB584) : const Color(0xFFE2E8F0),
-                  width: isSelected ? 2 : 1,
-                ),
+                color: isSelected ? AppTheme.primaryGreen.withOpacity(0.08) : Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: isSelected ? AppTheme.primaryGreen : AppTheme.cardBorder, width: isSelected ? 2 : 1),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    variantName,
-                    style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  const Icon(Icons.check_circle_outline_rounded, color: Color(0xFF2BB584)),
+                  Text(v['name'], style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 15)),
+                  Text('₹${v['price']}', style: GoogleFonts.outfit(fontWeight: FontWeight.w900, color: AppTheme.primaryGreen, fontSize: 16)),
                 ],
               ),
             ),
@@ -280,314 +230,336 @@ class _WizardScreenState extends State<WizardScreen> {
     );
   }
 
-  Widget _buildStep2Conditions() {
+  Widget _buildAgeSelection() {
+    final ages = [
+      {'id': 'under-3m', 'title': 'Below 3 Months', 'sub': 'With valid invoice & warranty'},
+      {'id': '3-6m', 'title': '3 - 6 Months', 'sub': 'Under brand warranty'},
+      {'id': '6-11m', 'title': '6 - 11 Months', 'sub': 'Near warranty expiry'},
+      {'id': 'above-11m', 'title': 'Above 11 Months', 'sub': 'Out of manufacturer warranty'},
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Device Age & Condition',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18, color: const Color(0xFF0F172A)),
-        ),
+        Text('How old is your device?', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
+        const SizedBox(height: 6),
+        Text('Warranty status affects your buyback value', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
         const SizedBox(height: 16),
-        
-        // Age
-        _buildConditionDropdown('Mobile Age:', _selectedAge, {
-          'under-3m': 'Under 3 Months',
-          '3-6m': '3 to 6 Months old',
-          '6-11m': '6 to 11 Months old',
-          'above-11m': 'Above 11 Months old',
-        }, (val) => setState(() => _selectedAge = val!)),
-        
-        // Screen
-        _buildConditionDropdown('Screen display condition:', _selectedScreen, {
-          'flawless': 'Flawless (No Scratches)',
-          'scratches': 'Minor Scratches',
-          'heavy': 'Heavy Scratches',
-          'cracked': 'Cracked Display / lines',
-        }, (val) => setState(() => _selectedScreen = val!)),
-        
-        // Body
-        _buildConditionDropdown('Body condition:', _selectedBody, {
-          'flawless': 'Mint / Flawless',
-          'scratches': 'Minor Scratches / Wear',
-          'dents': 'Dents / Paint Chipping',
-          'broken': 'Broken Glass / Panel Loose',
-        }, (val) => setState(() => _selectedBody = val!)),
+        ...ages.map((a) {
+          final isSelected = _deviceAge == a['id'];
+          return GestureDetector(
+            onTap: () => setState(() => _deviceAge = a['id']!),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isSelected ? AppTheme.primaryGreen.withOpacity(0.08) : Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: isSelected ? AppTheme.primaryGreen : AppTheme.cardBorder, width: isSelected ? 2 : 1),
+              ),
+              child: Row(
+                children: [
+                  Icon(isSelected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded, color: isSelected ? AppTheme.primaryGreen : const Color(0xFF94A3B8)),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(a['title']!, style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 15)),
+                      Text(a['sub']!, style: GoogleFonts.outfit(fontSize: 12, color: AppTheme.textMuted)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
       ],
     );
   }
 
-  Widget _buildConditionDropdown(String label, String value, Map<String, String> items, void Function(String?) onChange) {
+  Widget _buildScreenCondition() {
+    final conditions = [
+      {'id': 'flawless', 'title': 'Flawless (No Scratches)', 'sub': 'Zero visible marks on the display glass'},
+      {'id': 'scratches', 'title': 'Minor Scratches', 'sub': '1-2 light scratches seen under bright light'},
+      {'id': 'heavy', 'title': 'Heavy Scratches / Lines', 'sub': 'Deep scratches or minor display shading'},
+      {'id': 'cracked', 'title': 'Cracked / Broken Glass', 'sub': 'Glass broken but touch & display still working'},
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Screen / Display Condition', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
+        const SizedBox(height: 6),
+        Text('Check your display carefully in good lighting', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
+        const SizedBox(height: 16),
+        ...conditions.map((c) {
+          final isSelected = _screenCondition == c['id'];
+          return GestureDetector(
+            onTap: () => setState(() => _screenCondition = c['id']!),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isSelected ? AppTheme.primaryGreen.withOpacity(0.08) : Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: isSelected ? AppTheme.primaryGreen : AppTheme.cardBorder, width: isSelected ? 2 : 1),
+              ),
+              child: Row(
+                children: [
+                  Icon(isSelected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded, color: isSelected ? AppTheme.primaryGreen : const Color(0xFF94A3B8)),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(c['title']!, style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 15)),
+                      Text(c['sub']!, style: GoogleFonts.outfit(fontSize: 12, color: AppTheme.textMuted)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ],
+    );
+  }
+
+  Widget _buildBodyCondition() {
+    final conditions = [
+      {'id': 'flawless', 'title': 'Flawless Body', 'sub': 'Like new, no dents or paint peeling'},
+      {'id': 'scratches', 'title': 'Minor Scratches', 'sub': 'Normal daily usage wear and hairline marks'},
+      {'id': 'dents', 'title': 'Dents / Edge Bends', 'sub': 'Visible drops or chipped corners'},
+      {'id': 'broken', 'title': 'Cracked Back / Frame', 'sub': 'Back glass cracked or frame bent'},
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Body / Frame Physical Condition', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
+        const SizedBox(height: 6),
+        Text('Inspect the sides, back panel, and edges', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
+        const SizedBox(height: 16),
+        ...conditions.map((c) {
+          final isSelected = _bodyCondition == c['id'];
+          return GestureDetector(
+            onTap: () => setState(() => _bodyCondition = c['id']!),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isSelected ? AppTheme.primaryGreen.withOpacity(0.08) : Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: isSelected ? AppTheme.primaryGreen : AppTheme.cardBorder, width: isSelected ? 2 : 1),
+              ),
+              child: Row(
+                children: [
+                  Icon(isSelected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded, color: isSelected ? AppTheme.primaryGreen : const Color(0xFF94A3B8)),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(c['title']!, style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 15)),
+                      Text(c['sub']!, style: GoogleFonts.outfit(fontSize: 12, color: AppTheme.textMuted)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ],
+    );
+  }
+
+  Widget _buildFaultsSelection() {
+    final faults = [
+      {'id': 'frontcam', 'title': 'Front Camera Issue'},
+      {'id': 'backcam', 'title': 'Rear / Main Camera Fault'},
+      {'id': 'buttons', 'title': 'Volume / Power Buttons Defective'},
+      {'id': 'faceid', 'title': 'Face ID / Fingerprint Not Working'},
+      {'id': 'sound', 'title': 'Speaker / Earpiece Fault'},
+      {'id': 'mic', 'title': 'Microphone Not Working'},
+      {'id': 'network', 'title': 'WiFi / Cellular Fault'},
+      {'id': 'chargeport', 'title': 'Charging Port Defective'},
+      {'id': 'androidbattery', 'title': 'Battery Service Required (< 80% Health)'},
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Functional Issues (If Any)', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
+        const SizedBox(height: 6),
+        Text('Select only if specific features are not functioning', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
+        const SizedBox(height: 16),
+        ...faults.map((f) {
+          final isSelected = _selectedFaults.contains(f['id']);
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                if (isSelected) {
+                  _selectedFaults.remove(f['id']);
+                } else {
+                  _selectedFaults.add(f['id']!);
+                }
+              });
+            },
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xFFFEF2F2) : Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: isSelected ? const Color(0xFFEF4444) : AppTheme.cardBorder),
+              ),
+              child: Row(
+                children: [
+                  Icon(isSelected ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded, color: isSelected ? const Color(0xFFEF4444) : const Color(0xFF94A3B8)),
+                  const SizedBox(width: 12),
+                  Text(f['title']!, style: GoogleFonts.outfit(fontWeight: FontWeight.w700, fontSize: 14)),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ],
+    );
+  }
+
+  Widget _buildAccessoriesSelection() {
+    final accessories = [
+      {'id': 'box', 'title': 'Original Box (with matching IMEI)', 'icon': Icons.inventory_2_rounded},
+      {'id': 'charger', 'title': 'Original Fast Charger & Cable', 'icon': Icons.electrical_services_rounded},
+      {'id': 'bill', 'title': 'Valid Original Purchase Invoice / Bill', 'icon': Icons.receipt_long_rounded},
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Original Accessories You Have', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
+        const SizedBox(height: 6),
+        Text('Select only the accessories you will hand over during doorstep pickup', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
+        const SizedBox(height: 16),
+        ...accessories.map((a) {
+          final isSelected = _selectedAccessories.contains(a['id']);
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                if (isSelected) {
+                  _selectedAccessories.remove(a['id']);
+                } else {
+                  _selectedAccessories.add(a['id'] as String);
+                }
+              });
+            },
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isSelected ? AppTheme.primaryGreen.withOpacity(0.08) : Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: isSelected ? AppTheme.primaryGreen : AppTheme.cardBorder, width: isSelected ? 2 : 1),
+              ),
+              child: Row(
+                children: [
+                  Icon(isSelected ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded, color: isSelected ? AppTheme.primaryGreen : const Color(0xFF94A3B8)),
+                  const SizedBox(width: 12),
+                  Icon(a['icon'] as IconData, size: 22, color: isSelected ? AppTheme.primaryGreen : AppTheme.textMuted),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(a['title'] as String, style: GoogleFonts.outfit(fontWeight: FontWeight.w700, fontSize: 14)),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ],
+    );
+  }
+
+  Widget _buildBottomValuationBar(int finalPrice, String modelName) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFF475569))),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: value,
-                isExpanded: true,
-                onChanged: onChange,
-                items: items.entries.map((e) {
-                  return DropdownMenuItem(value: e.key, child: Text(e.value, style: GoogleFonts.outfit(fontSize: 14)));
-                }).toList(),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStep3Defects(bool isApple) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Functional Defect Checklist',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18, color: const Color(0xFF0F172A)),
-        ),
-        const SizedBox(height: 16),
-        GridView.count(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 2,
-          childAspectRatio: 1.8,
-          crossAxisSpacing: 10,
-          mainAxisSpacing: 10,
-          children: [
-            _buildDefectCard('frontcam', 'Front Camera', Icons.camera_front_rounded),
-            _buildDefectCard('backcam', 'Back Camera', Icons.camera_rounded),
-            _buildDefectCard('cameraglass', 'Camera Glass Broken', Icons.broken_image_rounded),
-            _buildDefectCard('buttons', 'Buttons Faulty', Icons.volume_up_rounded),
-            _buildDefectCard('faceid', 'Face ID Sensor', Icons.face_retouching_natural_rounded),
-            _buildDefectCard('touchid', 'Fingerprint ID', Icons.fingerprint_rounded),
-            _buildDefectCard('sound', 'Speakers Faulty', Icons.volume_mute_rounded),
-            _buildDefectCard('mic', 'Microphone Faulty', Icons.mic_off_rounded),
-            _buildDefectCard('network', 'WiFi/Bluetooth', Icons.wifi_lock_rounded),
-            _buildDefectCard('chargeport', 'Charging Port', Icons.power_input_rounded),
-            _buildDefectCard('vibrator', 'Vibrator Motor', Icons.vibration_rounded),
-            _buildDefectCard('proximity', 'Proximity Sensor', Icons.sensor_window_rounded),
-          ],
-        ),
-        const SizedBox(height: 16),
-        if (isApple)
-          _buildDefectCardRow('appleservice', 'Battery Service Required (Apple)', Icons.battery_alert_rounded),
-        if (!isApple)
-          _buildDefectCardRow('androidbattery', 'Battery Faulty / Swollen', Icons.battery_charging_full_rounded),
-      ],
-    );
-  }
-
-  Widget _buildDefectCard(String key, String label, IconData icon) {
-    final isSelected = _defects[key] == true;
-    return GestureDetector(
-      onTap: () => setState(() => _defects[key] = !isSelected),
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFFEE2E2) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? Colors.redAccent : const Color(0xFFE2E8F0),
-            width: isSelected ? 1.5 : 1,
-          ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: isSelected ? Colors.redAccent : const Color(0xFF64748B), size: 24),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.outfit(
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                color: isSelected ? Colors.red.shade900 : const Color(0xFF334155),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDefectCardRow(String key, String label, IconData icon) {
-    final isSelected = _defects[key] == true;
-    return GestureDetector(
-      onTap: () => setState(() => _defects[key] = !isSelected),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFFEE2E2) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? Colors.redAccent : const Color(0xFFE2E8F0),
-            width: isSelected ? 1.5 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: isSelected ? Colors.redAccent : const Color(0xFF64748B)),
-            const SizedBox(width: 12),
-            Text(
-              label,
-              style: GoogleFonts.outfit(
-                fontSize: 14,
-                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                color: isSelected ? Colors.red.shade900 : const Color(0xFF334155),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStep4Accessories() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Select Accessories Present',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18, color: const Color(0xFF0F172A)),
-        ),
-        const SizedBox(height: 16),
-        _buildAccessoryRow(_hasBox, 'Original Box', Icons.card_giftcard_rounded, (val) => setState(() => _hasBox = val!)),
-        const SizedBox(height: 12),
-        _buildAccessoryRow(_hasCharger, 'Original Charger', Icons.bolt_rounded, (val) => setState(() => _hasCharger = val!)),
-        const SizedBox(height: 12),
-        _buildAccessoryRow(_hasBill, 'Valid Bill', Icons.receipt_long_rounded, (val) => setState(() => _hasBill = val!)),
-      ],
-    );
-  }
-
-  Widget _buildAccessoryRow(bool value, String label, IconData icon, void Function(bool?) onChange) {
-    return GestureDetector(
-      onTap: () => onChange(!value),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: const Color(0xFF2BB584)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                label,
-                style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15, color: const Color(0xFF334155)),
-              ),
-            ),
-            Checkbox(
-              value: value,
-              activeColor: const Color(0xFF2BB584),
-              onChanged: onChange,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBottomBar() {
-    final finalPrice = _calculateFinalPrice();
-    return Container(
-      color: Colors.white,
       padding: const EdgeInsets.all(16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Estimated Value:', style: GoogleFonts.outfit(fontSize: 12, color: const Color(0xFF64748B), fontWeight: FontWeight.bold)),
-              Text(
-                '₹${finalPrice.toFormattedString()}',
-                style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.w900, color: const Color(0xFF2BB584)),
-              ),
-            ],
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (_currentStep < 4) {
-                setState(() => _currentStep++);
-              } else {
-                // Navigate to booking screen
-                final List<String> issues = [];
-                _defects.forEach((key, value) {
-                  if (value) {
-                    if (key == 'frontcam') issues.add('Front Camera Faulty');
-                    else if (key == 'backcam') issues.add('Back Camera Faulty');
-                    else if (key == 'cameraglass') issues.add('Camera Glass Broken');
-                    else if (key == 'buttons') issues.add('Physical Buttons Faulty');
-                    else if (key == 'faceid') issues.add('Face ID / Face Sensor Faulty');
-                    else if (key == 'touchid') issues.add('Touch ID / Fingerprint Faulty');
-                    else if (key == 'sound') issues.add('Speaker / Earpiece Sound Faulty');
-                    else if (key == 'mic') issues.add('Microphone Faulty');
-                    else if (key == 'network') issues.add('WiFi / Bluetooth Faulty');
-                    else if (key == 'chargeport') issues.add('Charging Port Faulty');
-                    else if (key == 'vibrator') issues.add('Vibrator Motor Faulty');
-                    else if (key == 'proximity') issues.add('Proximity Sensor Faulty');
-                    else if (key == 'appleservice') issues.add('Battery Service Required');
-                    else if (key == 'androidbattery') issues.add('Battery Faulty / Swollen');
-                  }
-                });
-
-                final List<String> accs = [];
-                if (_hasBox) accs.add('Box');
-                if (_hasCharger) accs.add('Charger');
-                if (_hasBill) accs.add('Bill');
-
-                final conditionString = 'Age: $_selectedAge, Screen: $_selectedScreen, Body: $_selectedBody, Issues: ${issues.isEmpty ? 'None' : issues.join(', ')}, Accessories: ${accs.isEmpty ? 'None' : accs.join(', ')}';
-
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => BookingScreen(
-                      deviceName: '${widget.brand.toUpperCase()} ${widget.modelData['name']} ($_selectedVariant)',
-                      finalQuote: finalPrice,
-                      conditionStr: conditionString,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: AppTheme.cardBorder)),
+      ),
+      child: SafeArea(
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Estimated Valuation', style: GoogleFonts.outfit(fontSize: 11, color: AppTheme.textMuted)),
+                  Text(
+                    '₹$finalPrice',
+                    style: GoogleFonts.outfit(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 22,
+                      color: AppTheme.primaryGreen,
                     ),
                   ),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2BB584),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ],
+              ),
             ),
-            child: Text(
-              _currentStep < 4 ? 'Continue' : 'Book Pickup',
-              style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15),
+            if (_currentStep > 0)
+              TextButton(
+                onPressed: () => setState(() => _currentStep--),
+                child: Text('Back', style: GoogleFonts.outfit(fontWeight: FontWeight.w700, color: AppTheme.textMuted)),
+              ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: () async {
+                if (_currentStep < _steps.length - 1) {
+                  setState(() => _currentStep++);
+                } else {
+                  // Final step: Save quote locally and proceed to booking
+                  final quote = SavedQuote(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    deviceName: modelName,
+                    brand: widget.brand,
+                    category: widget.category,
+                    variant: _selectedVariant,
+                    finalPrice: finalPrice,
+                    createdAt: DateTime.now(),
+                    breakdown: {
+                      'basePrice': _basePrice,
+                      'age': _deviceAge,
+                      'screen': _screenCondition,
+                      'body': _bodyCondition,
+                      'faults': _selectedFaults.toList(),
+                      'accessories': _selectedAccessories.toList(),
+                    },
+                  );
+                  await StorageService.saveQuote(quote);
+
+                  if (!mounted) return;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => BookingScreen(
+                        savedQuote: quote,
+                      ),
+                    ),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryGreen,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: Text(
+                _currentStep == _steps.length - 1 ? 'Book Pickup' : 'Continue',
+                style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 14),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
-  }
-}
-
-extension WizardNumberFormatting on int {
-  String toFormattedString() {
-    final str = toString();
-    if (str.length <= 3) return str;
-    return str.replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},');
   }
 }

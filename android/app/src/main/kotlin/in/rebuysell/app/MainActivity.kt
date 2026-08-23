@@ -1,5 +1,6 @@
-package com.example.rebuysell_customer_app
+package in.rebuysell.app
 
 import io.flutter.embedding.android.FlutterActivity
 
 class MainActivity : FlutterActivity()
+

@@ -321,7 +321,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
               keyboardType: TextInputType.phone,
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.phone_rounded, color: AppTheme.primaryGreen),
-                hintText: 'e.g. 7007508003 or +91 7007508003',
+                hintText: 'Enter 10-digit mobile number',
                 filled: true,
                 fillColor: Colors.white,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppTheme.cardBorder)),
@@ -387,18 +387,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                     ),
                   );
                 }),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '💡 Quick Test OTP: 123456',
-                  style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textMuted),
-                ),
               ),
               const SizedBox(height: 20),
               ElevatedButton(

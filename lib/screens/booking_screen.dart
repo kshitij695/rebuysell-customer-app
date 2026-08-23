@@ -7,8 +7,15 @@ import '../theme/app_theme.dart';
 
 class BookingScreen extends StatefulWidget {
   final SavedQuote savedQuote;
+  final CustomerProfile? customerProfile;
+  final String initialPincode;
 
-  const BookingScreen({Key? key, required this.savedQuote}) : super(key: key);
+  const BookingScreen({
+    Key? key,
+    required this.savedQuote,
+    this.customerProfile,
+    this.initialPincode = '',
+  }) : super(key: key);
 
   @override
   State<BookingScreen> createState() => _BookingScreenState();
@@ -26,6 +33,30 @@ class _BookingScreenState extends State<BookingScreen> {
   String _selectedDate = 'Tomorrow';
   String _selectedSlot = '10 AM - 1 PM';
   bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.customerProfile != null) {
+      _nameController.text = widget.customerProfile!.fullName;
+      _phoneController.text = widget.customerProfile!.phone;
+      _addressController.text = widget.customerProfile!.address;
+      _paymentDetailController.text = widget.customerProfile!.upi;
+    }
+    if (widget.initialPincode.isNotEmpty) {
+      _pincodeController.text = widget.initialPincode;
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    _addressController.dispose();
+    _pincodeController.dispose();
+    _paymentDetailController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -244,7 +275,7 @@ class _BookingScreenState extends State<BookingScreen> {
             ],
           ),
           const SizedBox(height: 6),
-          Text('Money is transferred directly to your account upon inspection', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 12)),
+          Text('Money is transferred directly to your account upon doorstep inspection', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 12)),
           const SizedBox(height: 14),
           Row(
             children: [

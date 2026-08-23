@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/pricing_config.dart';
 import '../models/quote_booking.dart';
+import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
-import 'booking_screen.dart';
+import 'otp_verification_screen.dart';
+import 'quote_reveal_screen.dart';
 
 class WizardScreen extends StatefulWidget {
   final String category;
@@ -35,7 +37,7 @@ class _WizardScreenState extends State<WizardScreen> {
   String _bodyCondition = 'flawless';
   final Set<String> _selectedFaults = {};
   
-  // NOTE: Original Accessories start UNSELECTED by default as required!
+  // Original Accessories start UNSELECTED by default
   final Set<String> _selectedAccessories = {};
 
   final List<String> _steps = ['Specs', 'Age', 'Screen', 'Body', 'Faults', 'Accessories'];
@@ -90,7 +92,7 @@ class _WizardScreenState extends State<WizardScreen> {
       price -= (_basePrice * rate);
     }
 
-    // 5. Missing Accessories deductions (Deduct if NOT present in _selectedAccessories)
+    // 5. Missing Accessories deductions (Deduct if NOT checked)
     if (!_selectedAccessories.contains('box')) {
       final boxRate = widget.pricingConfig.accessoryDeductions['box'] ?? 0.05;
       price -= (_basePrice * boxRate);
@@ -104,8 +106,22 @@ class _WizardScreenState extends State<WizardScreen> {
       price -= (_basePrice * billRate);
     }
 
-    // Ensure floor price
-    final floor = _basePrice * 0.15;
+    // Guaranteed ReBuySell markup
+    int guaranteedMarkup;
+    if (_basePrice >= 60000) {
+      guaranteedMarkup = 3000;
+    } else if (_basePrice >= 40000) {
+      guaranteedMarkup = 2500;
+    } else if (_basePrice >= 20000) {
+      guaranteedMarkup = 2000;
+    } else if (_basePrice >= 10000) {
+      guaranteedMarkup = 1500;
+    } else {
+      guaranteedMarkup = 1000;
+    }
+
+    // Floor safeguard
+    final floor = _basePrice * 0.20;
     if (price < floor) price = floor;
 
     return price.round();
@@ -113,7 +129,6 @@ class _WizardScreenState extends State<WizardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final finalPrice = _calculateFinalPrice();
     final modelName = widget.modelData['name'] ?? 'Device';
 
     return Scaffold(
@@ -129,7 +144,7 @@ class _WizardScreenState extends State<WizardScreen> {
               child: _buildCurrentStepContent(),
             ),
           ),
-          _buildBottomValuationBar(finalPrice, modelName),
+          _buildBottomActionNavigation(modelName),
         ],
       ),
     );
@@ -139,21 +154,39 @@ class _WizardScreenState extends State<WizardScreen> {
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: List.generate(_steps.length, (index) {
-          final isCompleted = index < _currentStep;
-          final isCurrent = index == _currentStep;
-          return Expanded(
-            child: Container(
-              height: 4,
-              margin: const EdgeInsets.symmetric(horizontal: 2),
-              decoration: BoxDecoration(
-                color: isCompleted || isCurrent ? AppTheme.primaryGreen : const Color(0xFFE2E8F0),
-                borderRadius: BorderRadius.circular(2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Step ${_currentStep + 1} of ${_steps.length}: ${_steps[_currentStep]}',
+                style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.primaryGreen),
               ),
-            ),
-          );
-        }),
+              Text(
+                '${((_currentStep + 1) / _steps.length * 100).round()}% Completed',
+                style: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 12, color: AppTheme.textMuted),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: List.generate(_steps.length, (index) {
+              final isCompleted = index <= _currentStep;
+              return Expanded(
+                child: Container(
+                  height: 4,
+                  margin: const EdgeInsets.symmetric(horizontal: 2),
+                  decoration: BoxDecoration(
+                    color: isCompleted ? AppTheme.primaryGreen : const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ],
       ),
     );
   }
@@ -197,7 +230,7 @@ class _WizardScreenState extends State<WizardScreen> {
       children: [
         Text('Select Storage / RAM Configuration', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
         const SizedBox(height: 6),
-        Text('Choose the exact variant of your device', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
+        Text('Choose your exact model configuration', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
         const SizedBox(height: 16),
         ...variants.map((v) {
           final isSelected = _selectedVariant == v['name'];
@@ -220,7 +253,10 @@ class _WizardScreenState extends State<WizardScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(v['name'], style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 15)),
-                  Text('₹${v['price']}', style: GoogleFonts.outfit(fontWeight: FontWeight.w900, color: AppTheme.primaryGreen, fontSize: 16)),
+                  Icon(
+                    isSelected ? Icons.check_circle_rounded : Icons.radio_button_off_rounded,
+                    color: isSelected ? AppTheme.primaryGreen : const Color(0xFF94A3B8),
+                  ),
                 ],
               ),
             ),
@@ -243,7 +279,7 @@ class _WizardScreenState extends State<WizardScreen> {
       children: [
         Text('How old is your device?', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
         const SizedBox(height: 6),
-        Text('Warranty status affects your buyback value', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
+        Text('Device warranty helps in calculating highest possible payout', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
         const SizedBox(height: 16),
         ...ages.map((a) {
           final isSelected = _deviceAge == a['id'];
@@ -279,18 +315,18 @@ class _WizardScreenState extends State<WizardScreen> {
 
   Widget _buildScreenCondition() {
     final conditions = [
-      {'id': 'flawless', 'title': 'Flawless (No Scratches)', 'sub': 'Zero visible marks on the display glass'},
-      {'id': 'scratches', 'title': 'Minor Scratches', 'sub': '1-2 light scratches seen under bright light'},
-      {'id': 'heavy', 'title': 'Heavy Scratches / Lines', 'sub': 'Deep scratches or minor display shading'},
-      {'id': 'cracked', 'title': 'Cracked / Broken Glass', 'sub': 'Glass broken but touch & display still working'},
+      {'id': 'flawless', 'title': 'Flawless Display (No Scratches)', 'sub': 'Clean screen with zero visible scratches'},
+      {'id': 'scratches', 'title': 'Minor Scratches', 'sub': '1-2 hairline scratches seen under light'},
+      {'id': 'heavy', 'title': 'Heavy Scratches / Shading', 'sub': 'Visible deep scratches or minor tint'},
+      {'id': 'cracked', 'title': 'Cracked / Broken Screen', 'sub': 'Screen glass cracked but touch works'},
     ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Screen / Display Condition', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
+        Text('Display / Screen Condition', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
         const SizedBox(height: 6),
-        Text('Check your display carefully in good lighting', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
+        Text('Inspect your display glass carefully in normal light', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
         const SizedBox(height: 16),
         ...conditions.map((c) {
           final isSelected = _screenCondition == c['id'];
@@ -326,18 +362,18 @@ class _WizardScreenState extends State<WizardScreen> {
 
   Widget _buildBodyCondition() {
     final conditions = [
-      {'id': 'flawless', 'title': 'Flawless Body', 'sub': 'Like new, no dents or paint peeling'},
+      {'id': 'flawless', 'title': 'Flawless Body / Frame', 'sub': 'Like new, no dents or scratches'},
       {'id': 'scratches', 'title': 'Minor Scratches', 'sub': 'Normal daily usage wear and hairline marks'},
       {'id': 'dents', 'title': 'Dents / Edge Bends', 'sub': 'Visible drops or chipped corners'},
-      {'id': 'broken', 'title': 'Cracked Back / Frame', 'sub': 'Back glass cracked or frame bent'},
+      {'id': 'broken', 'title': 'Cracked Back / Bent Frame', 'sub': 'Back glass cracked or frame bent'},
     ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Body / Frame Physical Condition', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
+        Text('Body / Outer Frame Condition', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
         const SizedBox(height: 6),
-        Text('Inspect the sides, back panel, and edges', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
+        Text('Inspect sides, corners, and back cover of the device', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
         const SizedBox(height: 16),
         ...conditions.map((c) {
           final isSelected = _bodyCondition == c['id'];
@@ -389,7 +425,7 @@ class _WizardScreenState extends State<WizardScreen> {
       children: [
         Text('Functional Issues (If Any)', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
         const SizedBox(height: 6),
-        Text('Select only if specific features are not functioning', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
+        Text('Select only if specific features are defective', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
         const SizedBox(height: 16),
         ...faults.map((f) {
           final isSelected = _selectedFaults.contains(f['id']);
@@ -437,7 +473,7 @@ class _WizardScreenState extends State<WizardScreen> {
       children: [
         Text('Original Accessories You Have', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
         const SizedBox(height: 6),
-        Text('Select only the accessories you will hand over during doorstep pickup', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
+        Text('Select only the items you will provide during doorstep pickup', style: GoogleFonts.outfit(color: AppTheme.textMuted, fontSize: 13)),
         const SizedBox(height: 16),
         ...accessories.map((a) {
           final isSelected = _selectedAccessories.contains(a['id']);
@@ -477,7 +513,7 @@ class _WizardScreenState extends State<WizardScreen> {
     );
   }
 
-  Widget _buildBottomValuationBar(int finalPrice, String modelName) {
+  Widget _buildBottomActionNavigation(String modelName) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: const BoxDecoration(
@@ -487,35 +523,21 @@ class _WizardScreenState extends State<WizardScreen> {
       child: SafeArea(
         child: Row(
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('Estimated Valuation', style: GoogleFonts.outfit(fontSize: 11, color: AppTheme.textMuted)),
-                  Text(
-                    '₹$finalPrice',
-                    style: GoogleFonts.outfit(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 22,
-                      color: AppTheme.primaryGreen,
-                    ),
-                  ),
-                ],
-              ),
-            ),
             if (_currentStep > 0)
-              TextButton(
+              TextButton.icon(
                 onPressed: () => setState(() => _currentStep--),
-                child: Text('Back', style: GoogleFonts.outfit(fontWeight: FontWeight.w700, color: AppTheme.textMuted)),
+                icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                label: Text('Back', style: GoogleFonts.outfit(fontWeight: FontWeight.w700)),
+                style: TextButton.styleFrom(foregroundColor: AppTheme.textMuted),
               ),
-            const SizedBox(width: 8),
+            const Spacer(),
             ElevatedButton(
               onPressed: () async {
                 if (_currentStep < _steps.length - 1) {
                   setState(() => _currentStep++);
                 } else {
-                  // Final step: Save quote locally and proceed to booking
+                  // Final step completed: Calculate final valuation
+                  final finalPrice = _calculateFinalPrice();
                   final quote = SavedQuote(
                     id: DateTime.now().millisecondsSinceEpoch.toString(),
                     deviceName: modelName,
@@ -533,28 +555,67 @@ class _WizardScreenState extends State<WizardScreen> {
                       'accessories': _selectedAccessories.toList(),
                     },
                   );
-                  await StorageService.saveQuote(quote);
+
+                  // Check if user is already phone verified with profile
+                  final isVerified = await StorageService.isPhoneVerified();
+                  final profile = await StorageService.getCustomerProfile();
 
                   if (!mounted) return;
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => BookingScreen(
-                        savedQuote: quote,
+
+                  if (isVerified && profile != null && profile.fullName.isNotEmpty) {
+                    // Already verified customer -> Reveal quote immediately!
+                    await StorageService.saveQuote(quote);
+                    
+                    // Background lead sync
+                    ApiService.submitLead({
+                      'type': 'verified_quote_reveal',
+                      'phone': profile.phone,
+                      'name': profile.fullName,
+                      'email': profile.email,
+                      'device': quote.deviceName,
+                      'variant': quote.variant,
+                      'price': quote.finalPrice,
+                      'breakdown': quote.breakdown,
+                    });
+
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => QuoteRevealScreen(
+                          savedQuote: quote,
+                          customerProfile: profile,
+                        ),
                       ),
-                    ),
-                  );
+                    );
+                  } else {
+                    // New user or unverified: Open OTP Verification & Name Collection Screen!
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => OtpVerificationScreen(
+                          pendingQuote: quote,
+                        ),
+                      ),
+                    );
+                  }
                 }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primaryGreen,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
               ),
-              child: Text(
-                _currentStep == _steps.length - 1 ? 'Book Pickup' : 'Continue',
-                style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 14),
+              child: Row(
+                children: [
+                  Text(
+                    _currentStep == _steps.length - 1 ? 'Get Exact Value' : 'Continue',
+                    style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 14),
+                  ),
+                  const SizedBox(width: 6),
+                  const Icon(Icons.arrow_forward_rounded, size: 16),
+                ],
               ),
             ),
           ],

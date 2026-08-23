@@ -36,8 +36,19 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     super.dispose();
   }
 
+  String get _sanitizedPhone {
+    String clean = _phoneController.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (clean.startsWith('91') && clean.length == 12) {
+      clean = clean.substring(2);
+    }
+    if (clean.startsWith('0') && clean.length == 11) {
+      clean = clean.substring(1);
+    }
+    return clean;
+  }
+
   void _sendOtp() {
-    final phone = _phoneController.text.trim();
+    final phone = _sanitizedPhone;
     if (phone.length != 10 || !RegExp(r'^[6-9][0-9]{9}$').hasMatch(phone)) {
       setState(() => _errorMessage = 'Please enter a valid 10-digit mobile number');
       return;
@@ -80,9 +91,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
     setState(() => _isLoading = false);
 
-    if (profile == null || profile.firstName.isEmpty || profile.phone != _phoneController.text.trim()) {
+    if (profile == null || profile.firstName.isEmpty || profile.phone != _sanitizedPhone) {
       // Show New Customer Name & Optional Email popup!
-      _showCustomerNameDialog(_phoneController.text.trim());
+      _showCustomerNameDialog(_sanitizedPhone);
     } else {
       _finishAndRevealQuote(profile);
     }
@@ -252,15 +263,11 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
               controller: _phoneController,
               enabled: !_isOtpSent,
               keyboardType: TextInputType.phone,
-              maxLength: 10,
               decoration: InputDecoration(
-                prefixText: '+91 ',
-                prefixStyle: GoogleFonts.outfit(fontWeight: FontWeight.w800, color: AppTheme.textMain, fontSize: 16),
                 prefixIcon: const Icon(Icons.phone_rounded, color: AppTheme.primaryGreen),
-                hintText: '98765 43210',
+                hintText: 'e.g. 7007508003 or +91 7007508003',
                 filled: true,
                 fillColor: Colors.white,
-                counterText: '',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppTheme.cardBorder)),
                 enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppTheme.cardBorder)),
                 focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppTheme.primaryGreen, width: 2)),

@@ -38,7 +38,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
   void _sendOtp() {
     final phone = _phoneController.text.trim();
-    if (phone.length != 10 || !RegExp(r'^[6-9]d{9}$').hasMatch(phone)) {
+    if (phone.length != 10 || !RegExp(r'^[6-9][0-9]{9}$').hasMatch(phone)) {
       setState(() => _errorMessage = 'Please enter a valid 10-digit mobile number');
       return;
     }

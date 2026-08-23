@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "800441376370",
+    "project_id": "rebuysell-auth",
+    "storage_bucket": "rebuysell-auth.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:800441376370:android:a0a55e52a8bdc7411ceceb",
+        "android_client_info": {
+          "package_name": "in.rebuysell.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDxdGNzAnDH1kC5UeH-E-CljijpWiWMsOE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

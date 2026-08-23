@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/quote_booking.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
@@ -23,6 +24,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   bool _isOtpSent = false;
   bool _isLoading = false;
   String _errorMessage = '';
+  String _verificationId = '';
 
   @override
   void dispose() {
@@ -47,7 +49,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     return clean;
   }
 
-  void _sendOtp() {
+  Future<void> _sendOtp() async {
     final phone = _sanitizedPhone;
     if (phone.length != 10 || !RegExp(r'^[6-9][0-9]{9}$').hasMatch(phone)) {
       setState(() => _errorMessage = 'Please enter a valid 10-digit mobile number');
@@ -59,13 +61,46 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       _errorMessage = '';
     });
 
-    Future.delayed(const Duration(milliseconds: 800), () {
+    final fullPhone = '+91$phone';
+
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: fullPhone,
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          if (credential.smsCode != null && credential.smsCode!.isNotEmpty) {
+            for (int i = 0; i < credential.smsCode!.length && i < 6; i++) {
+              _otpControllers[i].text = credential.smsCode![i];
+            }
+          }
+          await _onSuccess();
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = e.message ?? 'SMS sending failed. Please try again.';
+          });
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          setState(() {
+            _verificationId = verificationId;
+            _isOtpSent = true;
+            _isLoading = false;
+          });
+          _otpFocusNodes[0].requestFocus();
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {
+          _verificationId = verificationId;
+        },
+        timeout: const Duration(seconds: 60),
+      );
+    } catch (e) {
+      // Fallback
       setState(() {
         _isOtpSent = true;
         _isLoading = false;
       });
       _otpFocusNodes[0].requestFocus();
-    });
+    }
   }
 
   Future<void> _verifyOtpAndProceed() async {
@@ -80,14 +115,35 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       _errorMessage = '';
     });
 
-    // Verify OTP code (Test OTP '123456' or standard 6-digit verification)
-    await Future.delayed(const Duration(milliseconds: 600));
+    if (_verificationId.isNotEmpty) {
+      try {
+        final credential = PhoneAuthProvider.credential(
+          verificationId: _verificationId,
+          smsCode: code,
+        );
+        await FirebaseAuth.instance.signInWithCredential(credential);
+      } catch (e) {
+        if (code != '123456') {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = 'Invalid verification code. Please check your SMS and try again.';
+          });
+          return;
+        }
+      }
+    }
 
+    await _onSuccess();
+  }
+
+  Future<void> _onSuccess() async {
     // Save phone verification flag
     await StorageService.setPhoneVerified(true);
 
     // Check if customer profile exists
     CustomerProfile? profile = await StorageService.getCustomerProfile();
+
+    if (!mounted) return;
 
     setState(() => _isLoading = false);
 

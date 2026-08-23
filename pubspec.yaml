@@ -2,7 +2,7 @@ name: rebuysell_customer_app
 description: "ReBuySell Customer trade-in pricing and booking portal mobile application."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

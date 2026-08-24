@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config.dart';
 import '../models/pricing_config.dart';
+import 'storage_service.dart';
 
 class ApiService {
   static Future<Map<String, dynamic>> fetchCatalogAndConfig() async {
@@ -74,6 +75,54 @@ class ApiService {
       ).timeout(const Duration(seconds: 15));
 
       return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<CustomerProfile?> getCustomerProfile(String phone) async {
+    try {
+      final response = await http.post(
+        Uri.parse("${AppConfig.workerUrl}/api/customer-profile"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"phone": phone}),
+      ).timeout(const Duration(seconds: 12));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data["success"] == true && data["exists"] == true && data["customer"] != null) {
+          final c = data["customer"];
+          return CustomerProfile(
+            phone: phone,
+            firstName: c["firstName"] ?? "",
+            lastName: c["lastName"] ?? "",
+            email: c["email"] ?? "",
+            address: c["address1"] ?? "",
+            city: c["city"] ?? "",
+            zip: c["zip"] ?? "",
+            province: c["province"] ?? "",
+          );
+        }
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<bool> updateCustomerProfile(Map<String, dynamic> payload) async {
+    try {
+      final response = await http.post(
+        Uri.parse("${AppConfig.workerUrl}/api/update-customer-profile"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data["success"] == true;
+      }
+      return false;
     } catch (e) {
       return false;
     }

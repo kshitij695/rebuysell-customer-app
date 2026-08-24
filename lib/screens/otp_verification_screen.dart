@@ -137,20 +137,29 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   }
 
   Future<void> _onSuccess() async {
-    // Save phone verification flag
+    setState(() => _isLoading = true);
+
+    // 1. Save phone verification flag
     await StorageService.setPhoneVerified(true);
 
-    // Check if customer profile exists
+    // 2. Check if customer profile exists locally
     CustomerProfile? profile = await StorageService.getCustomerProfile();
+    if (profile == null || profile.firstName.isEmpty || profile.phone != _sanitizedPhone) {
+      // Fetch live customer record from Shopify via Cloudflare Worker!
+      profile = await ApiService.getCustomerProfile(_sanitizedPhone);
+      if (profile != null && profile.firstName.isNotEmpty) {
+        await StorageService.saveCustomerProfile(profile);
+      }
+    }
 
     if (!mounted) return;
-
     setState(() => _isLoading = false);
 
-    if (profile == null || profile.firstName.isEmpty || profile.phone != _sanitizedPhone) {
-      // Show New Customer Name & Optional Email popup!
+    if (profile == null || profile.firstName.isEmpty) {
+      // Only show Name & Optional Email for brand new users
       _showCustomerNameDialog(_sanitizedPhone);
     } else {
+      // Returning customer recognized from Shopify!
       _finishAndRevealQuote(profile);
     }
   }
@@ -160,6 +169,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     final lastController = TextEditingController();
     final emailController = TextEditingController();
     String dialogError = '';
+    bool isSaving = false;
 
     showDialog(
       context: context,
@@ -205,7 +215,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           ),
           actions: [
             ElevatedButton(
-              onPressed: () async {
+              onPressed: isSaving ? null : () async {
                 final first = firstController.text.trim();
                 final last = lastController.text.trim();
                 final email = emailController.text.trim();
@@ -215,6 +225,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                   return;
                 }
 
+                setDialogState(() => isSaving = true);
+
                 final newProfile = CustomerProfile(
                   phone: verifiedPhone,
                   firstName: first,
@@ -222,7 +234,17 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                   email: email,
                 );
 
+                // Save locally
                 await StorageService.saveCustomerProfile(newProfile);
+
+                // Sync new customer profile to Shopify in background
+                ApiService.updateCustomerProfile({
+                  "phone": verifiedPhone,
+                  "firstName": first,
+                  "lastName": last,
+                  "email": email,
+                });
+
                 Navigator.pop(ctx);
                 _finishAndRevealQuote(newProfile);
               },
@@ -232,10 +254,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 minimumSize: const Size(double.infinity, 44),
               ),
-              child: Text(
-                'Unlock My Valuation →',
-                style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 14),
-              ),
+              child: isSaving
+                  ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : Text(
+                      'Unlock My Valuation →',
+                      style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 14),
+                    ),
             ),
           ],
         ),

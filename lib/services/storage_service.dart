@@ -8,6 +8,9 @@ class CustomerProfile {
   final String lastName;
   final String email;
   final String address;
+  final String city;
+  final String zip;
+  final String province;
   final String upi;
 
   CustomerProfile({
@@ -16,10 +19,13 @@ class CustomerProfile {
     required this.lastName,
     this.email = '',
     this.address = '',
+    this.city = '',
+    this.zip = '',
+    this.province = '',
     this.upi = '',
   });
 
-  String get fullName => '$firstName $lastName'.trim();
+  String get fullName => '$firstName $lastName'.trim().isEmpty ? 'Valued Customer' : '$firstName $lastName'.trim();
 
   Map<String, dynamic> toJson() => {
     'phone': phone,
@@ -27,6 +33,9 @@ class CustomerProfile {
     'lastName': lastName,
     'email': email,
     'address': address,
+    'city': city,
+    'zip': zip,
+    'province': province,
     'upi': upi,
   };
 
@@ -36,6 +45,9 @@ class CustomerProfile {
     lastName: json['lastName'] ?? '',
     email: json['email'] ?? '',
     address: json['address'] ?? '',
+    city: json['city'] ?? '',
+    zip: json['zip'] ?? '',
+    province: json['province'] ?? '',
     upi: json['upi'] ?? '',
   );
 }
@@ -98,5 +110,11 @@ class StorageService {
     final list = prefs.getStringList(_bookingsKey) ?? [];
     list.insert(0, jsonEncode(booking.toJson()));
     await prefs.setStringList(_bookingsKey, list);
+  }
+
+  static Future<void> logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_profileKey);
+    await prefs.setBool(_verifiedKey, false);
   }
 }
